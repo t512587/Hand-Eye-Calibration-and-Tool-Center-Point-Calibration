@@ -184,7 +184,7 @@ python record.py
 ```
 
 **操作說明：**
-- 手動移動機械臂至不同姿態（建議 15 個點位）
+- 手動移動機械臂至不同姿態（建議 20 個點位）
 - 確保每個姿態下相機都能清楚檢測到 ArUco Marker
 - 按 `S` 鍵記錄當前檢測到的 ArUco 標記
 - 按 `R` 鍵重置記錄
@@ -235,7 +235,7 @@ python auto.py
 ```
 
 **選項 1 - 自動化標定：**
-- 機械臂自動移動至 15 個預設點位
+- 機械臂自動移動至 20 個預設點位
 - 相機自動識別 ArUco 標記
 - 生成標定數據檔案 `automated_calibration_data.json`
 
@@ -285,7 +285,7 @@ elephant_client = ElephantRobot("192.168.50.123", 5001)
 ### 調整標定點位數量
 ```python
 # 在 record.py 中修改
-target_points = 15  # 修改為您想要的數量（建議 15-30）
+target_points = 20  # 修改為您想要的數量（建議 20-30）
 ```
 
 ---
