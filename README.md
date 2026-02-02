@@ -74,9 +74,9 @@ pip install numpy opencv-contrib-python pyrealsense2 pymycobot scipy matplotlib
 ```
 Hand-Eye-Calibration/
 ├── tcp/                # TCP 校正模組
-│   ├── tcp_auto.py                 # 自動化校正（推薦）
-│   ├── tcp_stage1.py               # 階段一：計算偏移量
-│   ├── tcp_stage2.py               # 階段二：精確定位
+│   ├── tcp_stage1.py               # 階段一：計算夾爪偏移量
+│   ├── tcp_stage2.py               # 階段二：定位雷射中心點
+│   ├── tcp_auto.py                 # 自動化校正
 │   ├── seting.py                   # 姿態設定工具
 │   └── tcp_offset.json             # 偏移量記錄
 │
@@ -99,7 +99,28 @@ Hand-Eye-Calibration/
 
 > **重要：** TCP 校正必須在手眼標定**之前**完成！
 
-### 方法一：自動化校正（推薦）
+
+### 兩階段手動校正
+
+**階段一 - 計算偏移量：**
+```bash
+python tcp_stage1.py
+```
+- 手動移動至 5 個不同姿態
+- 每個姿態觸發雷射並記錄
+- 自動計算 TCP 偏移量
+
+**階段二 - 精確定位：**
+```bash
+python tcp_stage2.py
+```
+- 基於階段一結果
+- X/Y/Z 軸逐一精確定位
+- 輸出最終 TCP 位置
+
+---
+
+### 自動化校正
 
 **設備準備：**
 - 將十字雷射對位器固定於工作台
@@ -134,26 +155,6 @@ python tcp_auto.py
   }
 }
 ```
-
-### 方法二：兩階段手動校正
-
-**階段一 - 計算偏移量：**
-```bash
-python tcp_stage1.py
-```
-- 手動移動至 5 個不同姿態
-- 每個姿態觸發雷射並記錄
-- 自動計算 TCP 偏移量
-
-**階段二 - 精確定位：**
-```bash
-python tcp_stage2.py
-```
-- 基於階段一結果
-- X/Y/Z 軸逐一精確定位
-- 輸出最終 TCP 位置
-
----
 
 ## 📐 手眼標定流程
 
