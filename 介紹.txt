@@ -1,0 +1,7 @@
+eye_in_hand   眼在手校正 *
+eye_to_hand 眼不在手校正 *
+**************************
+python檔案
+record.py 初始手動紀錄座標點
+compute_transform.py 計算轉換矩陣和測試
+auto.py 可用於後續自動記錄座標點後計算免去人工紀錄
