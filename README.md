@@ -107,7 +107,7 @@ Hand-Eye-Calibration/
 
 **執行校正：**
 ```bash
-cd tcp_calibration
+cd tcp
 python tcp_auto.py
 ```
 
