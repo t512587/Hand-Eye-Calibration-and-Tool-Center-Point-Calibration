@@ -73,7 +73,7 @@ pip install numpy opencv-contrib-python pyrealsense2 pymycobot scipy matplotlib
 
 ```
 Hand-Eye-Calibration/
-├── tcp_calibration/                # TCP 校正模組
+├── tcp/                # TCP 校正模組
 │   ├── tcp_auto.py                 # 自動化校正（推薦）
 │   ├── tcp_stage1.py               # 階段一：計算偏移量
 │   ├── tcp_stage2.py               # 階段二：精確定位
