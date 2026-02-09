@@ -1,12 +1,12 @@
 import numpy as np
 import cv2
 import json
+import os
 import math
 import pyrealsense2 as rs
 from pymycobot.elephantrobot import ElephantRobot
 from scipy.spatial.transform import Rotation as R
 import time
-import os
 from collections import deque
 
 # === 棋盤格設定 ===
@@ -14,7 +14,7 @@ CHESSBOARD_SIZE = (9, 6)  # 內角點數量 (列, 行)
 SQUARE_SIZE = 0.025  # 每個方格的實際大小，單位: 公尺 (25mm)
 
 # === 採集數據 JSON 檔案路徑 ===
-CALIBRATION_DATA_JSON_PATH = r"C:\Users\user\Downloads\Hand-Eye-Calibration-main\eye_in_hand\handeye_records\handeye_chessboard_20260126_155850.json"
+CALIBRATION_DATA_JSON_PATH = r"C:\Users\user\Downloads\Hand-Eye-Calibration-main\eye_in_hand\handeye_records\handeye_chessboard_20260204_185505.json"
 
 
 # ============================================================
@@ -53,6 +53,14 @@ def to_homogeneous(R, t):
     return H
 
 
+def is_rotation_matrix(R):
+    """檢查一個矩陣是否為有效的旋轉矩陣"""
+    Rt = np.transpose(R)
+    should_be_identity = Rt @ R
+    I = np.identity(3, dtype=R.dtype)
+    return np.linalg.norm(I - should_be_identity) < 1e-6
+
+
 def calculate_handeye_calibration(json_path):
     """
     從 JSON 檔案讀取採集數據並計算手眼標定 (使用 TSAI 方法)
@@ -61,7 +69,7 @@ def calculate_handeye_calibration(json_path):
         json_path: 採集數據的 JSON 檔案路徑
         
     Returns:
-        np.array: 4x4 相機到夾爪的變換矩陣 (單位: mm)
+        np.array: 4x4 相機到夾爪的變換矩陣 (單位: m) ✅ 改為米
     """
     print(f"\n{'='*60}")
     print("手眼標定計算 (TSAI 方法)")
@@ -78,6 +86,7 @@ def calculate_handeye_calibration(json_path):
     print(f"✓ 載入 {len(raw_data)} 筆數據")
     
     # === 轉換數據格式 & 單位 ===
+    # ✅ 統一：將所有長度單位從毫米 (mm) 轉換為公尺 (m)
     data = []
     for d in raw_data:
         # 支援新舊兩種格式
@@ -104,6 +113,8 @@ def calculate_handeye_calibration(json_path):
             "aruco_rvec": rvec,
             "robot_pose_at_detect": robot_pose
         })
+    
+    print("✅ 資料單位轉換完成 (mm -> m)。")
     
     # === 建立旋轉和平移陣列 ===
     R_gripper2base, t_gripper2base = [], []
@@ -134,6 +145,15 @@ def calculate_handeye_calibration(json_path):
     
     H_cam2gripper = to_homogeneous(R_cam2gripper, t_cam2gripper)
     
+    print("✅ 手眼校正完成！")
+    
+    # === 顯示結果 ===
+    print("\n--- 校正結果 ---")
+    print("📷➡️🤖 相機到末端 (Cam to Gripper) 齊次轉換矩陣 H_cam2gripper：")
+    print(H_cam2gripper)
+    print(f"是否為有效的旋轉矩陣: {is_rotation_matrix(R_cam2gripper)}")
+    print(f"平移向量 (m): {t_cam2gripper.ravel()}")
+    
     # === 驗證結果 ===
     all_positions = []
     for i in range(len(R_gripper2base)):
@@ -143,23 +163,17 @@ def calculate_handeye_calibration(json_path):
         pos = (H_target2base @ np.array([0, 0, 0, 1]).reshape((4, 1))).ravel()[:3]
         all_positions.append(pos)
     
+    avg_pos = np.mean(all_positions, axis=0)
     std_dev = np.std(all_positions, axis=0)
-    euclidean_std = np.linalg.norm(std_dev) * 1000  # mm
+    euclidean_std = np.linalg.norm(std_dev)
     
-    print(f"✓ 標定完成，精度: {euclidean_std:.2f} mm")
+    print(f"\n所有標定點在基座座標的平均位置 (m): {avg_pos}")
+    print(f"所有標定點在基座座標的標準差 (m) (越小越好): {std_dev}")
+    print(f"歐氏距離標準差 (m): {euclidean_std:.6f}")
+    print(f"✓ 標定完成，精度: {euclidean_std * 1000:.2f} mm")
     
-    # 顯示結果
-    t_mm = t_cam2gripper.ravel() * 1000
-    print(f"平移向量 (mm): [{t_mm[0]:.2f}, {t_mm[1]:.2f}, {t_mm[2]:.2f}]")
-    
-    # 轉換為 mm 單位
-    H_mm = H_cam2gripper.copy()
-    H_mm[:3, 3] *= 1000
-    
-    print("\n相機到夾爪變換矩陣 (mm):")
-    print(H_mm)
-    
-    return H_mm
+    # ✅ 保持米單位，不轉換為毫米
+    return H_cam2gripper  # 返回米單位的矩陣
 
 
 # ============================================================
@@ -168,7 +182,13 @@ def calculate_handeye_calibration(json_path):
 
 class RealTimeCoordinateTransform:
     def __init__(self, camera_to_gripper_matrix, robot_ip="192.168.50.123", robot_port=5001):
-        self.T_camera_gripper = np.array(camera_to_gripper_matrix)
+        """
+        初始化實時座標轉換系統
+        
+        Args:
+            camera_to_gripper_matrix: 相機到夾爪的變換矩陣 (單位: m) ✅
+        """
+        self.T_camera_gripper = np.array(camera_to_gripper_matrix)  # 單位: 米
         
         self.robot_ip = robot_ip
         self.robot_port = robot_port
@@ -188,6 +208,7 @@ class RealTimeCoordinateTransform:
         self.current_transform = None
         
         print("實時座標轉換系統初始化完成")
+        print(f"⚙️ T_camera_gripper 單位: 米 (m)")
     
     def _create_chessboard_points(self):
         objp = np.zeros((self.chessboard_size[0] * self.chessboard_size[1], 3), np.float32)
@@ -200,10 +221,10 @@ class RealTimeCoordinateTransform:
             self.robot = ElephantRobot(self.robot_ip, self.robot_port)
             self.robot.start_client()
             self.robot_connected = True
-            print(f"機械手臂連接成功: {self.robot_ip}:{self.robot_port}")
+            print(f"✓ 機械手臂連接成功: {self.robot_ip}:{self.robot_port}")
             return True
         except Exception as e:
-            print(f"機械手臂連接失敗: {e}")
+            print(f"⚠️ 機械手臂連接失敗: {e}")
             self.robot_connected = False
             return False
     
@@ -227,15 +248,16 @@ class RealTimeCoordinateTransform:
             if len(intrinsics.coeffs) >= 5:
                 self.dist_coeffs = np.array(intrinsics.coeffs[:5]).reshape(5, 1)
             
-            print(f"\n相機內參: fx={intrinsics.fx:.1f}, fy={intrinsics.fy:.1f}")
-            print("RealSense相機初始化成功")
+            print(f"\n✓ 相機內參: fx={intrinsics.fx:.1f}, fy={intrinsics.fy:.1f}")
+            print("✓ RealSense相機初始化成功")
             return True
             
         except Exception as e:
-            print(f"相機初始化失敗: {e}")
+            print(f"❌ 相機初始化失敗: {e}")
             return False
     
     def invert_transform(self, T):
+        """計算變換矩陣的逆"""
         R_mat = T[:3, :3]
         t = T[:3, 3]
         R_inv = R_mat.T
@@ -246,6 +268,7 @@ class RealTimeCoordinateTransform:
         return T_inv
     
     def transform_point(self, T, P):
+        """使用變換矩陣轉換 3D 點"""
         P_h = np.ones(4)
         P_h[:3] = P
         P_transformed = T @ P_h
@@ -254,48 +277,50 @@ class RealTimeCoordinateTransform:
     def camera_to_base_transform(self, rvec, tvec, gripper_pose):
         """
         將棋盤格從相機座標系轉換到基座座標系
+        ✅ 統一使用米 (m) 進行計算
         
         Args:
             rvec: 旋轉向量 (from solvePnP)
             tvec: 平移向量 (from solvePnP), 單位 m
-            gripper_pose: [x, y, z, rx, ry, rz]
+            gripper_pose: [x, y, z, rx, ry, rz], 位置單位 mm
         
         Returns:
-            棋盤格在基座座標系的位置 [x, y, z] (mm)
+            棋盤格在基座座標系的位置 [x, y, z] (m) ✅ 改為返回米
         """
         x, y, z, rx, ry, rz = gripper_pose
         
-        # 步驟 1: 建立 T_base_gripper
-        translation = np.array([x, y, z])  # mm
+        # 步驟 1: 建立 T_base_gripper (單位: m)
+        translation = np.array([x, y, z]) / 1000.0  # ✅ mm → m
         rotation = R.from_euler('xyz', [rx, ry, rz], degrees=True)
         rotation_matrix = rotation.as_matrix()
         
         T_base_gripper = np.eye(4)
         T_base_gripper[:3, :3] = rotation_matrix
-        T_base_gripper[:3, 3] = translation
+        T_base_gripper[:3, 3] = translation  # 單位: m
         
         # 步驟 2: 計算 T_gripper_camera = inverse(T_camera_gripper)
-        T_gripper_camera = self.invert_transform(self.T_camera_gripper)
+        T_gripper_camera = self.invert_transform(self.T_camera_gripper)  # 單位: m
         
-        # 步驟 3: 建立 T_camera_target (棋盤格在相機座標系)
+        # 步驟 3: 建立 T_camera_target (棋盤格在相機座標系, 單位: m)
         R_camera_target, _ = cv2.Rodrigues(rvec)
-        t_camera_target = tvec.flatten() * 1000  # m to mm
+        t_camera_target = tvec.flatten()  # ✅ 保持米單位，不轉換
         
         T_camera_target = np.eye(4)
         T_camera_target[:3, :3] = R_camera_target
-        T_camera_target[:3, 3] = t_camera_target
+        T_camera_target[:3, 3] = t_camera_target  # 單位: m
         
-        # 步驟 4: 完整變換鏈
+        # 步驟 4: 完整變換鏈（全部使用米）
         # T_base_target = T_base_gripper @ T_gripper_camera @ T_camera_target
         T_base_target = T_base_gripper @ T_gripper_camera @ T_camera_target
         
         # 步驟 5: 提取棋盤格原點在基座座標系的位置
         target_origin = np.array([0, 0, 0, 1])
-        base_position = (T_base_target @ target_origin)[:3]
+        base_position = (T_base_target @ target_origin)[:3]  # 單位: m
         
         return base_position
     
     def detect_chessboard(self, color_image):
+        """檢測棋盤格"""
         gray = cv2.cvtColor(color_image, cv2.COLOR_BGR2GRAY)
         
         ret, corners = cv2.findChessboardCorners(
@@ -312,7 +337,7 @@ class RealTimeCoordinateTransform:
             )
             
             if success:
-                camera_pos = tvec.flatten() * 1000
+                camera_pos = tvec.flatten()  # ✅ 單位: m
                 return {
                     'detected': True,
                     'camera_position': camera_pos,
@@ -324,6 +349,7 @@ class RealTimeCoordinateTransform:
         return {'detected': False}
     
     def draw_results(self, color_image, detection_result):
+        """繪製檢測結果"""
         if detection_result['detected']:
             cv2.drawChessboardCorners(
                 color_image, self.chessboard_size, 
@@ -336,12 +362,13 @@ class RealTimeCoordinateTransform:
                 self.square_size * 3
             )
             
-            cam_pos = detection_result['camera_position']
+            # ✅ 顯示時轉換為毫米
+            cam_pos = detection_result['camera_position'] * 1000  # m → mm
             cv2.putText(color_image, f"Cam: ({cam_pos[0]:.0f}, {cam_pos[1]:.0f}, {cam_pos[2]:.0f}) mm",
                        (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 0, 0), 2)
             
             if self.current_transform:
-                base_pos = self.current_transform['base_position']
+                base_pos = self.current_transform['base_position'] * 1000  # m → mm
                 cv2.putText(color_image, f"Base: ({base_pos[0]:.0f}, {base_pos[1]:.0f}, {base_pos[2]:.0f}) mm",
                            (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
             
@@ -356,14 +383,19 @@ class RealTimeCoordinateTransform:
                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
     
     def run(self):
+        """執行實時座標轉換"""
         if not self.init_camera():
             return
         
         self.connect_robot()
         
-        print(f"\n=== 實時座標轉換系統啟動 ===")
+        print(f"\n{'='*60}")
+        print("=== 實時座標轉換系統啟動 ===")
+        print("單位系統: 內部計算使用米 (m), 顯示使用毫米 (mm)")
+        print("='*60}")
         print("按 'C' 鍵: 輸出當前座標")
         print("按 'Q' 鍵: 退出")
+        print("=" * 60)
         
         try:
             while True:
@@ -380,21 +412,21 @@ class RealTimeCoordinateTransform:
                     try:
                         current_gripper_pose = self.robot.get_coords()
                         
-                        # 使用完整的 rvec 和 tvec 進行轉換
+                        # 使用完整的 rvec 和 tvec 進行轉換（單位: m）
                         base_pos = self.camera_to_base_transform(
                             detection_result['rvec'],
                             detection_result['tvec'],
                             current_gripper_pose
                         )
                         
-                        camera_pos = detection_result['camera_position']
+                        camera_pos = detection_result['camera_position']  # 單位: m
                         
                         self.current_transform = {
-                            'camera_position': camera_pos,
-                            'base_position': base_pos
+                            'camera_position': camera_pos,  # m
+                            'base_position': base_pos  # m
                         }
                     except Exception as e:
-                        print(f"座標轉換錯誤: {e}")
+                        print(f"⚠️ 座標轉換錯誤: {e}")
                 
                 self.draw_results(color_image, detection_result)
                 
@@ -407,21 +439,22 @@ class RealTimeCoordinateTransform:
                     
                 elif key == ord('c') or key == ord('C'):
                     if self.current_transform:
-                        cam = self.current_transform['camera_position']
-                        base = self.current_transform['base_position']
+                        # ✅ 顯示時轉換為毫米
+                        cam = self.current_transform['camera_position'] * 1000  # m → mm
+                        base = self.current_transform['base_position'] * 1000  # m → mm
                         print(f"\n相機座標: ({cam[0]:.1f}, {cam[1]:.1f}, {cam[2]:.1f}) mm")
                         print(f"基座座標: ({base[0]:.1f}, {base[1]:.1f}, {base[2]:.1f}) mm")
                     else:
-                        print("未檢測到棋盤格")
+                        print("⚠️ 未檢測到棋盤格")
         
         except KeyboardInterrupt:
-            print("\n中斷...")
+            print("\n⛔ 中斷...")
         
         finally:
             if self.pipeline:
                 self.pipeline.stop()
             cv2.destroyAllWindows()
-            print("系統已關閉")
+            print("✅ 系統已關閉")
 
 
 # ============================================================
@@ -431,6 +464,7 @@ class RealTimeCoordinateTransform:
 def main():
     print("=" * 60)
     print("實時相機到機械手臂座標轉換系統")
+    print("單位系統: 統一使用米 (m) 進行計算")
     print("=" * 60)
     
     # === 輸入採集數據 JSON 檔案路徑 ===
@@ -441,6 +475,7 @@ def main():
     # === 計算手眼標定 ===
     try:
         T_camera_gripper = calculate_handeye_calibration(json_path)
+        print(f"\n✅ 手眼標定矩陣已計算完成 (單位: m)")
     except Exception as e:
         print(f"\n❌ 標定失敗: {e}")
         return
