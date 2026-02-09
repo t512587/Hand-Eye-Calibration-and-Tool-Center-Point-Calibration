@@ -65,18 +65,31 @@ def perform_handeye_calibration(raw_data):
     """
     print("\n⚙️ 開始手眼標定計算 (TSAI 方法)...")
     
+
     # === 轉換數據格式 & 單位 ===
     data = []
     for d in raw_data:
-        aruco_tvec = [x / 1000 for x in d["aruco_tvec"]]  # mm to m
+        # 檢查是棋盤格資料還是 ArUco 資料
+        if "chessboard_data" in d:
+            # 棋盤格資料
+            tvec = [x / 1000 for x in d["chessboard_data"]["translation_mm"]]  # mm to m
+            rvec = d["chessboard_data"]["rotation_vector"]
+        elif "aruco_tvec" in d:
+            # ArUco 資料
+            tvec = [x / 1000 for x in d["aruco_tvec"]]  # mm to m
+            rvec = d["aruco_rvec"]
+        else:
+            print(f"❌ 錯誤: 記錄 {d.get('record_id', '?')} 缺少標定資料")
+            continue
+            
         robot_pose = d["robot_pose_after_move"]
         robot_pose[:3] = [x / 1000 for x in robot_pose[:3]]  # mm to m
         data.append({
-            "aruco_tvec": aruco_tvec,
-            "aruco_rvec": d["aruco_rvec"],
+            "target_tvec": tvec,
+            "target_rvec": rvec,
             "robot_pose_at_detect": robot_pose
         })
-    print("✅ 資料單位轉換完成 (mm -> m)")
+    print(f"✅ 資料單位轉換完成 (mm -> m)，共 {len(data)} 筆有效資料")
 
     # === 建立旋轉和平移陣列 ===
     R_gripper2base, t_gripper2base = [], []
@@ -89,8 +102,8 @@ def perform_handeye_calibration(raw_data):
         R_gripper2base.append(R_g2b)
         t_gripper2base.append(t_g2b)
 
-        rvec_t2c = np.array(d["aruco_rvec"]).reshape((3, 1))
-        tvec_t2c = np.array(d["aruco_tvec"]).reshape((3, 1))
+        rvec_t2c = np.array(d["target_rvec"]).reshape((3, 1))
+        tvec_t2c = np.array(d["target_tvec"]).reshape((3, 1))
         R_t2c, _ = cv2.Rodrigues(rvec_t2c)
         R_target2cam.append(R_t2c)
         t_target2cam.append(tvec_t2c)
@@ -372,7 +385,7 @@ def main():
     objp = create_chessboard_points()
 
     # === 自動讀取 JSON 開始執行 ===
-    json_path = r"C:\Users\user\Downloads\robottest-main\c2h_trans\eye_on_hand\handeye_records\handeye_chessboard_20260119_132556.json"
+    json_path = r"C:\Users\user\Downloads\Hand-Eye-Calibration-main\eye_in_hand\handeye_records\handeye_chessboard_20260209_143610.json"
     
     calibration_result = None
     
@@ -389,7 +402,7 @@ def main():
         
         # === 移動到各標定點並記錄 ===
         for i, entry in enumerate(auto_data):
-            target_pose = entry["robot_pose_at_detect"]
+            target_pose = entry["robot_coords"]
             print(f"\nMoving to point {i+1}: {target_pose}")
             elephant_client.write_coords(target_pose, 1000)
             
