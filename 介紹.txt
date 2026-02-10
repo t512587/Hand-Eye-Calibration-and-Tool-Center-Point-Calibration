@@ -11,4 +11,4 @@ tcp_stage1.py 計算工具偏移量
 tcp_stage2.py 定位雷射十字中心點座標
 tcp_auto.py   自動檢查校正偏移
 
-123
+456
